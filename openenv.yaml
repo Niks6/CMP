@@ -1,0 +1,136 @@
+environment:
+  name: content_moderation_rl
+  version: "1.0.0"
+  description: >
+    A Reinforcement Learning environment simulating real-world AI content
+    moderation on a social media platform. The agent moderates a queue of
+    user-generated posts by choosing from four moderation actions.
+
+observation:
+  fields:
+    - name: post_id
+      type: int
+      description: Unique identifier for the post
+    - name: post_text
+      type: str
+      description: Full text content of the social media post
+    - name: toxicity_score
+      type: float
+      range: [0.0, 1.0]
+      description: Model-predicted toxicity — higher means more toxic
+    - name: report_count
+      type: int
+      range: [0, ∞)
+      description: Number of times the post has been reported by users
+    - name: user_reputation
+      type: float
+      range: [0.0, 1.0]
+      description: Post author's platform reputation — higher is more trusted
+    - name: image_flag
+      type: bool
+      description: Whether the post contains a potentially harmful image
+    - name: spam_score
+      type: float
+      range: [0.0, 1.0]
+      description: Spam detection model score
+    - name: misinfo_score
+      type: float
+      range: [0.0, 1.0]
+      description: Misinformation detection model score
+    - name: step_index
+      type: int
+      description: Current step index within the episode
+    - name: posts_remaining
+      type: int
+      description: Number of posts left in the moderation queue
+
+actions:
+  type: discrete
+  space:
+    - name: ALLOW
+      index: 0
+      description: Post is safe; no action taken
+    - name: REMOVE
+      index: 1
+      description: Post is immediately removed from the platform
+    - name: WARN_USER
+      index: 2
+      description: Author receives a warning; post stays visible
+    - name: ESCALATE_TO_HUMAN
+      index: 3
+      description: Sent to a human reviewer for complex cases
+
+reward:
+  type: shaped
+  summary: >
+    Reward is computed based on the ground-truth post category and the
+    appropriateness of the action. Correct actions yield positive rewards;
+    incorrect actions (e.g., ignoring harmful content or over-moderating
+    benign posts) yield negative rewards.
+  range: [-10, +10]
+  key_values:
+    - scenario: "High toxicity (>0.8) + REMOVE"
+      reward: +10
+    - scenario: "Spam + REMOVE"
+      reward: +8
+    - scenario: "Misinformation + ESCALATE_TO_HUMAN"
+      reward: +7
+    - scenario: "Hate speech (moderate) + WARN_USER"
+      reward: +4 to +5
+    - scenario: "Benign (low toxicity) + ALLOW"
+      reward: +3
+    - scenario: "Allowing harmful content"
+      reward: -10
+    - scenario: "Unnecessary removal of benign content"
+      reward: -5
+    - scenario: "Excessive escalation of clear-cut cases"
+      reward: -2
+
+tasks:
+  - id: task_1
+    name: spam_detection
+    difficulty: easy
+    n_posts: 200
+    description: >
+      Detect and remove spam from a queue of benign and spam posts.
+      Spam posts have high spam_score, high report_count, and low user_reputation.
+    grader: SpamGrader
+    grading_metric: accuracy (correct_actions / total_posts)
+    target_score: 0.80
+
+  - id: task_2
+    name: hate_speech_moderation
+    difficulty: medium
+    n_posts: 200
+    description: >
+      Identify hate speech posts of varying severity and apply appropriate
+      severity-calibrated actions (REMOVE for severe, WARN_USER for moderate).
+    grader: HateGrader
+    grading_metric: severity-weighted accuracy
+    target_score: 0.70
+
+  - id: task_3
+    name: misinformation_detection
+    difficulty: hard
+    n_posts: 200
+    description: >
+      Detect misinformation in a complex queue alongside benign and spam posts.
+      Misinformation requires ESCALATE_TO_HUMAN or REMOVE. Benign content must pass through.
+    grader: MisinformationGrader
+    grading_metric: F1-score (precision-recall balanced)
+    target_score: 0.60
+
+interface:
+  class: ContentModerationEnv
+  module: env.moderation_env
+  methods:
+    - reset() -> Observation
+    - step(action) -> (Observation, float, bool, dict)
+    - state() -> dict
+    - episode_summary() -> dict
+
+dataset:
+  generator: dataset.dataset_generator.generate_dataset
+  default_size: 500
+  categories: [benign, spam, hate_speech, misinformation]
+  default_weights: {benign: 0.40, spam: 0.25, hate_speech: 0.20, misinformation: 0.15}
