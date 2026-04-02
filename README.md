@@ -273,5 +273,3 @@ Dataset categories (default weights):
 ## 📄 License
 
 MIT License — built for the Meta Hackathon.
-#   C M P  
- 
