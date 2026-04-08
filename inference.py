@@ -61,6 +61,11 @@ API_KEY: str | None = (
 
 USE_LLM: bool = bool(API_BASE_URL and API_KEY)
 
+# Cap posts per task to stay within the 20-min runtime limit.
+# 200 posts × 3 tasks = 600 LLM calls ≈ 20-30 min (too slow).
+# 30 posts × 3 tasks =  90 LLM calls ≈ 3-5  min (safe).
+MAX_POSTS_PER_TASK: int = int(os.getenv("MAX_POSTS_PER_TASK", "30"))
+
 # ---------------------------------------------------------------------------
 # LLM client (lazy import so the script works without openai installed)
 # ---------------------------------------------------------------------------
@@ -226,11 +231,15 @@ def run_task(
 ) -> float:
     """Run one task episode and return the grader score."""
     posts = task_obj.get_dataset()
-    env = task_obj.make_env(shuffle=False)
 
+    # Limit posts per task to stay within 20-min runtime budget.
+    # Override with MAX_POSTS_PER_TASK env var (default 30).
+    all_posts = list(posts)[:MAX_POSTS_PER_TASK]
+
+    from env.moderation_env import ContentModerationEnv
+    env = ContentModerationEnv(posts=all_posts, seed=42, shuffle=False)
     obs = env.reset()
     all_actions: list[ModerationAction] = []
-    all_posts = list(posts)
 
     logger.start(task_name)
 
