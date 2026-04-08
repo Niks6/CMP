@@ -47,7 +47,7 @@ class SpamGrader:
             )
 
         if not posts:
-            return 0.0
+            return 1e-4
 
         correct = 0
         for action, post in zip(actions, posts):

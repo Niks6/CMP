@@ -53,7 +53,7 @@ class MisinformationGrader:
             )
 
         if not posts:
-            return 0.0
+            return 1e-4
 
         tp = fp = fn = 0
         for action, post in zip(actions, posts):
