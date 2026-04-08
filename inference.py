@@ -48,18 +48,24 @@ from graders.misinformation_grader import MisinformationGrader
 
 # ---------------------------------------------------------------------------
 # Config from environment variables
+# Checklist requirements:
+#   - API_BASE_URL and MODEL_NAME have defaults (placeholder strings)
+#   - HF_TOKEN has NO default — injected by validator at runtime
+#   - API_KEY has NO default — injected by validator at runtime
 # ---------------------------------------------------------------------------
 
-API_BASE_URL: str | None = os.getenv("API_BASE_URL")
-MODEL_NAME: str | None = os.getenv("MODEL_NAME", "gpt-4o-mini")
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
 # Validator injects API_KEY — fall back to HF_TOKEN / OPENAI_API_KEY for local runs
+# HF_TOKEN intentionally has NO default value
 API_KEY: str | None = (
     os.getenv("API_KEY")
     or os.getenv("HF_TOKEN")
     or os.getenv("OPENAI_API_KEY")
 )
 
-USE_LLM: bool = bool(API_BASE_URL and API_KEY)
+# Only use LLM when a real API key is available (validator injects API_KEY/HF_TOKEN)
+USE_LLM: bool = bool(API_KEY and API_BASE_URL)
 
 # Cap posts per task to stay within the 20-min runtime limit.
 # 200 posts × 3 tasks = 600 LLM calls ≈ 20-30 min (too slow).
@@ -262,10 +268,16 @@ def run_task(
         print(f"[WARN] Grader raised exception: {exc}. Using fallback score.")
         grader_score = 0.5  # safe midpoint fallback
 
-    # Guarantee strictly in (0, 1) with wide safe margins
-    grader_score = max(0.01, min(0.99, float(grader_score)))
-    logger.end(grader_score)
+    # CRITICAL: scores must be STRICTLY between 0 and 1 (exclusive)
+    # Clamp with wide safe margins — never emit 0.0 or 1.0
+    grader_score = float(grader_score)
+    if grader_score <= 0.0:
+        grader_score = 0.01
+    elif grader_score >= 1.0:
+        grader_score = 0.99
+    grader_score = max(0.01, min(0.99, grader_score))
 
+    logger.end(grader_score)
     return grader_score
 
 
