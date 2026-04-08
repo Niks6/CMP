@@ -69,7 +69,8 @@ class HateGrader:
                 if action in (ModerationAction.ALLOW, ModerationAction.WARN_USER):
                     correct += 1
 
-        return correct / len(posts)
+        raw = correct / len(posts)
+        return max(1e-4, min(1 - 1e-4, raw))
 
     def detailed_report(
         self,

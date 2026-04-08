@@ -75,7 +75,7 @@ class MisinformationGrader:
             else 0.0
         )
 
-        return round(f1, 4)
+        return max(1e-4, min(1 - 1e-4, round(f1, 4)))
 
     def detailed_report(
         self,
