@@ -13,16 +13,17 @@ client API and produces structured logs in the exact hackathon format:
     final_score
 
 Environment variables:
-    API_BASE_URL  : OpenAI-compatible endpoint (e.g. https://api.openai.com/v1)
+    API_BASE_URL  : OpenAI-compatible endpoint (LiteLLM proxy, injected by validator)
+    API_KEY       : API key for the proxy (injected by validator — use this first)
     MODEL_NAME    : Model identifier (e.g. gpt-4o-mini, meta-llama/Llama-3-8b)
-    HF_TOKEN      : HuggingFace token used as the API key (or OPENAI_API_KEY)
+    HF_TOKEN      : Fallback API key if API_KEY is not set
 
 If none of these are set the script falls back to the rule-based BaselineAgent
 so it is always runnable — even without an API key.
 
 Usage:
     python inference.py
-    API_BASE_URL=https://api.openai.com/v1 MODEL_NAME=gpt-4o-mini HF_TOKEN=hf_xxx python inference.py
+    API_BASE_URL=https://proxy.example.com/v1 API_KEY=xxx MODEL_NAME=gpt-4o-mini python inference.py
 """
 
 from __future__ import annotations
@@ -50,17 +51,22 @@ from graders.misinformation_grader import MisinformationGrader
 # ---------------------------------------------------------------------------
 
 API_BASE_URL: str | None = os.getenv("API_BASE_URL")
-MODEL_NAME: str | None = os.getenv("MODEL_NAME")
-HF_TOKEN: str | None = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+MODEL_NAME: str | None = os.getenv("MODEL_NAME", "gpt-4o-mini")
+# Validator injects API_KEY — fall back to HF_TOKEN / OPENAI_API_KEY for local runs
+API_KEY: str | None = (
+    os.getenv("API_KEY")
+    or os.getenv("HF_TOKEN")
+    or os.getenv("OPENAI_API_KEY")
+)
 
-USE_LLM: bool = bool(API_BASE_URL and MODEL_NAME and HF_TOKEN)
+USE_LLM: bool = bool(API_BASE_URL and API_KEY)
 
 # ---------------------------------------------------------------------------
 # LLM client (lazy import so the script works without openai installed)
 # ---------------------------------------------------------------------------
 
 def _build_llm_client():
-    """Build an OpenAI-compatible async client."""
+    """Build an OpenAI-compatible client pointed at the proxy."""
     try:
         from openai import OpenAI  # type: ignore
     except ImportError:
@@ -69,7 +75,7 @@ def _build_llm_client():
 
     return OpenAI(
         base_url=API_BASE_URL,
-        api_key=HF_TOKEN,
+        api_key=API_KEY,
     )
 
 
@@ -265,7 +271,7 @@ def main() -> None:
             print("[INFO] Using rule-based BaselineAgent (LLM client unavailable)")
     else:
         agent = BaselineAgent()
-        print("[INFO] Using rule-based BaselineAgent (no API keys configured)")
+        print(f"[INFO] Using rule-based BaselineAgent (API_BASE_URL={API_BASE_URL}, API_KEY set={bool(API_KEY)})")
 
     tasks_config = [
         ("spam_detection",          SpamTask(),            SpamGrader()),
