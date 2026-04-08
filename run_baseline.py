@@ -120,6 +120,9 @@ def run_task(
 
     # Compute grader score
     grader_score = grader.grade(actions=all_actions, posts=all_posts)
+    # Validator requires each task score to be strictly between 0 and 1.
+    # Also avoid rounding down to 0.0 or up to 1.0.
+    grader_score = max(1e-4, min(1 - 1e-4, float(grader_score)))
     summary = env.episode_summary()
 
     return {
