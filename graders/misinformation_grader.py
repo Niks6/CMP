@@ -53,7 +53,7 @@ class MisinformationGrader:
             )
 
         if not posts:
-            return 1e-4
+            return 0.01
 
         tp = fp = fn = 0
         for action, post in zip(actions, posts):
@@ -75,7 +75,7 @@ class MisinformationGrader:
             else 0.0
         )
 
-        return max(1e-4, min(1 - 1e-4, round(f1, 4)))
+        return max(0.01, min(0.99, round(f1, 4)))
 
     def detailed_report(
         self,

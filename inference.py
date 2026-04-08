@@ -177,7 +177,8 @@ class StructuredLogger:
 
     def end(self, final_score: float) -> None:
         self._emit("[END]")
-        self._emit(str(round(final_score, 4)))
+        # Use f-string formatting (never round()) to avoid float precision edge cases
+        self._emit(f"{final_score:.4f}")
 
     def close(self) -> None:
         if self._file:
@@ -261,8 +262,8 @@ def run_task(
         print(f"[WARN] Grader raised exception: {exc}. Using fallback score.")
         grader_score = 0.5  # safe midpoint fallback
 
-    # Guarantee strictly in (0, 1) — validator rejects 0.0 and 1.0 exactly
-    grader_score = max(1e-4, min(1 - 1e-4, float(grader_score)))
+    # Guarantee strictly in (0, 1) with wide safe margins
+    grader_score = max(0.01, min(0.99, float(grader_score)))
     logger.end(grader_score)
 
     return grader_score

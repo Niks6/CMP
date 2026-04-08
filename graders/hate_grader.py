@@ -47,7 +47,7 @@ class HateGrader:
             )
 
         if not posts:
-            return 1e-4
+            return 0.01
 
         correct = 0
         for action, post in zip(actions, posts):
@@ -70,7 +70,7 @@ class HateGrader:
                     correct += 1
 
         raw = correct / len(posts)
-        return max(1e-4, min(1 - 1e-4, raw))
+        return max(0.01, min(0.99, raw))
 
     def detailed_report(
         self,
