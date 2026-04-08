@@ -53,6 +53,9 @@ content-moderation-rl/
 │   └── baseline_agent.py     # BaselineAgent with threshold heuristics
 │
 ├── run_baseline.py         # 🚀 Entry-point demo script
+├── server.py               # 🌐 FastAPI HTTP server (port 7860)
+├── inference.py            # 🤖 LLM-based inference agent with structured logging
+├── Dockerfile              # 🐳 Container build (Python 3.11, port 7860)
 ├── openenv.yaml            # OpenEnv metadata / specification file
 ├── requirements.txt        # Python dependencies
 └── README.md               # This file
@@ -199,17 +202,63 @@ python run_baseline.py --verbose
 python run_baseline.py --quiet
 ```
 
-### 3. Expected output
+### 3. Run the inference script (LLM agent + structured logs)
 
-```
-Task 1 — Spam Detection (Easy)        | Score: 0.8500 | Reward: +450.0
-Task 2 — Hate Speech Moderation (Med) | Score: 0.7200 | Reward: +380.0
-Task 3 — Misinformation Detection (H) | Score: 0.6100 | Reward: +290.0
-Overall average grader score: 0.7267
-✓ All tasks met their target scores!
+```bash
+# Without API keys — uses rule-based fallback, always works
+python inference.py
+
+# With an OpenAI-compatible LLM
+API_BASE_URL=https://api.openai.com/v1 MODEL_NAME=gpt-4o-mini HF_TOKEN=sk-xxx python inference.py
+
+# With a HuggingFace model
+API_BASE_URL=https://api-inference.huggingface.co/v1 MODEL_NAME=meta-llama/Llama-3-8b-Instruct HF_TOKEN=hf_xxx python inference.py
 ```
 
-### 4. Use in your own RL loop
+Structured log output (stdout):
+```
+[START]
+spam_detection
+[STEP]
+REMOVE
+8.0
+[STEP]
+ALLOW
+3.0
+...
+[END]
+0.8500
+```
+
+### 4. Start the HTTP server (for validator / HuggingFace Spaces)
+
+```bash
+uvicorn server:app --host 0.0.0.0 --port 7860
+```
+
+Test the endpoints:
+```bash
+curl http://localhost:7860/health
+curl -X POST http://localhost:7860/reset
+curl -X POST http://localhost:7860/step -H "Content-Type: application/json" -d '{"action":"REMOVE"}'
+curl http://localhost:7860/state
+```
+
+### 5. Docker
+
+```bash
+# Build image
+docker build -t cmp-env .
+
+# Run container
+docker run -p 7860:7860 cmp-env
+
+# Test liveness
+curl http://localhost:7860/health
+# Expected: {"status": "ok", "environment": "content_moderation_rl", "version": "1.0.0"}
+```
+
+### 6. Use in your own RL loop
 
 ```python
 from env import ContentModerationEnv
@@ -233,6 +282,29 @@ while True:
 print(f"Total reward: {total_reward}")
 print(env.episode_summary())
 ```
+
+---
+
+## 📡 HTTP API Reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness probe — returns `{"status": "ok"}` |
+| `POST` | `/reset` | Reset episode, returns first `Observation` |
+| `POST` | `/step` | Submit action `{"action": "REMOVE"}`, returns `{observation, reward, done, info}` |
+| `GET` | `/state` | Current internal episode state |
+| `GET` | `/action_space` | List all valid actions with indices |
+| `GET` | `/episode_summary` | Accuracy + per-category breakdown |
+
+---
+
+## 📊 Baseline Scores
+
+| Agent | Task 1 (Spam) | Task 2 (Hate Speech) | Task 3 (Misinfo) | Average |
+|---|---|---|---|---|
+| **Random agent** | ~0.31 | ~0.28 | ~0.26 | ~0.28 |
+| **Rule-based baseline** | ~0.85 | ~0.72 | ~0.61 | ~0.73 |
+| **Target (to beat)** | 0.80 | 0.70 | 0.60 | — |
 
 ---
 
@@ -267,6 +339,10 @@ Dataset categories (default weights):
 - pyyaml >= 6.0
 - numpy >= 1.24
 - rich >= 13.0
+- fastapi >= 0.110 *(HTTP server)*
+- uvicorn >= 0.29 *(ASGI server)*
+- openai >= 1.0 *(LLM inference)*
+- httpx >= 0.27 *(HTTP client)*
 
 ---
 
