@@ -111,6 +111,18 @@ def health() -> dict[str, str]:
     return {"status": "ok", "environment": "content_moderation_rl", "version": "1.0.0"}
 
 
+@app.get("/", summary="Root — API info")
+def root() -> dict[str, Any]:
+    """Root endpoint — returns API overview."""
+    return {
+        "name": "Content Moderation RL Environment",
+        "version": "1.0.0",
+        "status": "running",
+        "endpoints": ["/health", "/reset", "/step", "/state", "/action_space", "/episode_summary"],
+        "docs": "/docs",
+    }
+
+
 @app.post("/reset", summary="Reset environment and get first observation")
 def reset(req: ResetRequest = ResetRequest()) -> dict[str, Any]:
     """
