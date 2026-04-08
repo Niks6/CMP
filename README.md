@@ -1,3 +1,12 @@
+---
+title: Content Moderation RL Environment
+emoji: 🛡️
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # Content Moderation RL Environment
 
 > A production-ready **Reinforcement Learning environment** simulating real-world AI content moderation on social media platforms — built for the **Meta Hackathon**.
