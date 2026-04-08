@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "cmp"
+version = "0.1.0"
+description = "Content Moderation Pipeline - OpenEnv RL Environment"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "numpy>=1.24.0",
+    "rich>=13.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "openai>=1.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black",
+    "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["env*", "tasks*", "graders*", "reward*", "baseline*", "dataset*"]
