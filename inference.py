@@ -34,7 +34,8 @@ import sys
 import textwrap
 from typing import Any
 import time
-import requests
+import urllib.request
+import urllib.error
 
 from dataset.dataset_generator import generate_dataset
 from env.moderation_env import ContentModerationEnv
@@ -264,10 +265,11 @@ def main() -> None:
     print("[INFO] Waiting for OpenEnv server to start...", flush=True)
     for _ in range(15):
         try:
-            if requests.get("http://localhost:7860/health").status_code == 200:
-                print("[INFO] Server connected.")
-                break
-        except requests.exceptions.ConnectionError:
+            with urllib.request.urlopen("http://localhost:7860/health") as response:
+                if response.getcode() == 200:
+                    print("[INFO] Server connected.")
+                    break
+        except urllib.error.URLError:
             time.sleep(1)
     else:
         print("[WARN] Server did not start. Proceeding anyway...")
