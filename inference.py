@@ -33,6 +33,8 @@ import os
 import sys
 import textwrap
 from typing import Any
+import time
+import requests
 
 from dataset.dataset_generator import generate_dataset
 from env.moderation_env import ContentModerationEnv
@@ -159,40 +161,19 @@ def _parse_llm_response(text: str) -> ModerationAction:
 # ---------------------------------------------------------------------------
 
 class StructuredLogger:
-    """Writes logs to stdout and optionally to a file in hackathon format."""
+    """Standardized OpenEnv logging format."""
+    def start(self, task_name: str, env_name: str, model_name: str) -> None:
+        print(f"[START] task={task_name} env={env_name} model={model_name}", flush=True)
 
-    def __init__(self, log_file: str | None = None):
-        self._lines: list[str] = []
-        self._file = open(log_file, "w") if log_file else None
+    def step(self, step: int, action: str, reward: float, done: bool, error: str | None = None) -> None:
+        err_str = f'"{error}"' if error else "null"
+        print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={err_str}", flush=True)
 
-    def _emit(self, line: str) -> None:
-        print(line)
-        self._lines.append(line)
-        if self._file:
-            self._file.write(line + "\n")
-            self._file.flush()
-
-    def start(self, task_name: str) -> None:
-        self._emit("[START]")
-        self._emit(task_name)
-
-    def step(self, action: str, reward: float) -> None:
-        self._emit("[STEP]")
-        self._emit(action)
-        self._emit(str(reward))
-
-    def end(self, final_score: float) -> None:
-        self._emit("[END]")
-        # Use f-string formatting (never round()) to avoid float precision edge cases
-        self._emit(f"{final_score:.4f}")
-
-    def close(self) -> None:
-        if self._file:
-            self._file.close()
-
-    @property
-    def lines(self) -> list[str]:
-        return list(self._lines)
+    def end(self, success: bool, steps: int, score: float, rewards: list[float]) -> None:
+        # Clamp strictly between 0.01 and 0.99 to pass constraints
+        clamped_score = max(0.01, min(0.99, float(score)))
+        csv_rewards = ",".join(f"{r:.2f}" for r in rewards)
+        print(f"[END] success={str(success).lower()} steps={steps} score={clamped_score:.4f} rewards={csv_rewards}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -206,17 +187,22 @@ class LLMAgent:
 
     def select_action(self, obs: Observation) -> Action:
         prompt = _observation_to_prompt(obs)
+        
+        # 1. Fold SYSTEM_PROMPT into user prompt (Mandatory for wide compatibility)
+        combined_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"
+        
         try:
             response = self._client.chat.completions.create(
                 model=self._model,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": combined_prompt},
                 ],
                 max_tokens=16,
                 temperature=0.0,
             )
             raw = response.choices[0].message.content or ""
+            # 2. Robust JSON/Markdown stripping
+            raw = raw.replace("```json", "").replace("```", "").strip()
         except Exception as exc:
             print(f"[WARN] LLM call failed ({exc}); falling back to ALLOW")
             raw = "ALLOW"
@@ -229,55 +215,43 @@ class LLMAgent:
 # Task runner
 # ---------------------------------------------------------------------------
 
-def run_task(
-    task_name: str,
-    task_obj: Any,
-    grader: Any,
-    agent: Any,
-    logger: StructuredLogger,
-) -> float:
-    """Run one task episode and return the grader score."""
+def run_task(task_name: str, task_obj: Any, grader: Any, agent: Any, logger: StructuredLogger) -> float:
     posts = task_obj.get_dataset()
-
-    # Limit posts per task to stay within 20-min runtime budget.
-    # Override with MAX_POSTS_PER_TASK env var (default 30).
     all_posts = list(posts)[:MAX_POSTS_PER_TASK]
 
     from env.moderation_env import ContentModerationEnv
     env = ContentModerationEnv(posts=all_posts, seed=42, shuffle=False)
     obs = env.reset()
-    all_actions: list[ModerationAction] = []
+    all_actions = []
+    rewards =[]
 
-    logger.start(task_name)
+    # Emit standard START log
+    logger.start(task_name=task_name, env_name="content_moderation_rl", model_name=MODEL_NAME)
 
+    step_idx = 0
     while True:
         action_obj = agent.select_action(obs)
         moderation_action = action_obj.action
         all_actions.append(moderation_action)
 
         next_obs, reward, done, info = env.step(moderation_action)
-        logger.step(moderation_action.value, round(reward, 2))
+        rewards.append(reward)
+        
+        # Emit standard STEP log
+        logger.step(step=step_idx, action=moderation_action.value, reward=reward, done=done)
 
         if done:
             break
         obs = next_obs
+        step_idx += 1
 
     try:
         grader_score = grader.grade(actions=all_actions, posts=all_posts)
-    except Exception as exc:
-        print(f"[WARN] Grader raised exception: {exc}. Using fallback score.")
-        grader_score = 0.5  # safe midpoint fallback
+    except Exception:
+        grader_score = 0.5 
 
-    # CRITICAL: scores must be STRICTLY between 0 and 1 (exclusive)
-    # Clamp with wide safe margins — never emit 0.0 or 1.0
-    grader_score = float(grader_score)
-    if grader_score <= 0.0:
-        grader_score = 0.01
-    elif grader_score >= 1.0:
-        grader_score = 0.99
-    grader_score = max(0.01, min(0.99, grader_score))
-
-    logger.end(grader_score)
+    # Emit standard END log
+    logger.end(success=True, steps=step_idx + 1, score=grader_score, rewards=rewards)
     return grader_score
 
 
@@ -286,8 +260,19 @@ def run_task(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    log_file = os.getenv("LOG_FILE")  # optional: write logs to file too
-    logger = StructuredLogger(log_file=log_file)
+    # Connection Resilience Loop (Mandatory)
+    print("[INFO] Waiting for OpenEnv server to start...", flush=True)
+    for _ in range(15):
+        try:
+            if requests.get("http://localhost:7860/health").status_code == 200:
+                print("[INFO] Server connected.")
+                break
+        except requests.exceptions.ConnectionError:
+            time.sleep(1)
+    else:
+        print("[WARN] Server did not start. Proceeding anyway...")
+
+    logger = StructuredLogger()
 
     # Choose agent
     if USE_LLM:
@@ -317,8 +302,6 @@ def main() -> None:
     avg = sum(scores) / len(scores) if scores else 0.0
     print(f"\n[SUMMARY] Scores: {[round(s, 4) for s in scores]}", file=sys.stderr)
     print(f"[SUMMARY] Average grader score: {avg:.4f}", file=sys.stderr)
-
-    logger.close()
 
 
 if __name__ == "__main__":
